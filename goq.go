@@ -2,6 +2,7 @@ package main
 
 import (
     "fmt"
+	"unicode"
 )
 
 type Expr interface{
@@ -176,78 +177,109 @@ func pattern_match(pattern Expr, value Expr) (Bindings, error) {
 	return nil, fmt.Errorf("Can't find pattern match: pattern='%s' over value='%s'", pattern.String(), value.String())
 }
 
+// === === ===
+
+type tokenkind string
+
+const (
+	SYM tokenkind	= "SYM"
+	OPENPAREN		= "OPENPAREN"
+	CLOSEPAREN		= "CLOSEPAREN"
+	COMMA			= "COMMA"
+	EQUAL			= "EQUAL"
+	INVALID			= "INVALID"
+)
+
+type Token struct {
+	kind tokenkind
+	text string
+}
+func (t Token)String() string {
+	return "[" + string(t.kind) + ":" + t.text + "]"
+}
+
+type Lexer struct {
+	text []rune
+	cursor int
+	current_chr rune
+}
+func (l *Lexer) fromStr(s string) *Lexer{
+	l.text = []rune(s)
+	//fmt.Printf("now l.text = %s\n", string(l.text))
+	l.cursor = 0
+	return l
+}
+func (l *Lexer) Iter () <-chan Token {
+	ch := make(chan Token)
+	go func (){
+		for t, ok := l.generateToken(); ok; t, ok = l.generateToken() {
+			ch <- t
+		}
+		close(ch)
+	}()
+	return ch
+}
+func (l *Lexer) generateToken() (Token, bool) {
+	if !l.advance(){
+		return Token{}, false
+	}
+	switch l.current_chr{
+	case '(':
+		return Token{OPENPAREN, ""}, true
+	case ')':
+		return Token{CLOSEPAREN, ""}, true
+	case ',':
+		return Token{COMMA, ""}, true
+	case '=':
+		return Token{EQUAL, ""}, true
+	default:
+		if rune(l.current_chr) == ' '{
+			return l.generateToken()
+		}
+		sym_name := []rune{l.current_chr}
+		for next_chr, ok := l.peek(0); ok; next_chr, ok = l.peek(0){
+			//fmt.Printf("peeking %c: it is ", next_chr)
+			if !unicode.IsLetter(next_chr) && !unicode.IsDigit(next_chr) {
+				//fmt.Println("invalid because not alphanumeric")
+				break
+			}
+			sym_name = append(sym_name, next_chr)
+			//fmt.Printf("%c is valid. Now sym_name = %s\n", next_chr, string(sym_name))
+			l.advance()
+		}
+		//fmt.Printf("saving sym_name = %s\n", string(sym_name))
+		return Token{SYM, string(sym_name)}, true
+	}
+	panic("unreachable")
+	return Token{INVALID, ""}, false
+}
+func (l *Lexer) advance() bool {
+	//fmt.Print("advanced and ")
+	if l.cursor >= len(l.text){
+		//fmt.Println("we're over")
+		return false
+	}
+	l.current_chr = l.text[l.cursor]
+	l.cursor += 1
+	//fmt.Printf("current_chr = %c, cursor/len = %d/%d\n", l.current_chr, l.cursor, len(l.text))
+	return true
+}
+func (l *Lexer) peek(offset int) (rune, bool) {
+	sum := l.cursor + offset 
+	//fmt.Printf("peeking @ %d -> ", sum)
+	if sum >= len(l.text) || sum < 0 {
+		return ' ', false
+	}
+	return l.text[sum], true
+}
+
 func main(){
-    // swap(pair(a, b)) = pair(b, a)
-    swap := Rule{
-        head : Fun{"swap",
-                []Expr{
-                    Fun{"pair",
-                        []Expr{
-                            Sym{"a"},
-                            Sym{"b"},
-                        },
-                    },
-                },
-            },
-        body : Fun{"pair",
-                []Expr{
-                    Sym{"b"},
-                    Sym{"a"},
-                },
-            },
-    }
-
-	// foo(swap(pair(f(a), g(b))), swap(pair(q(c), z(d))))
-    expr := Fun{"foo",
-        []Expr{
-            Fun{"swap",
-                []Expr{
-					Fun{"pair",
-						[]Expr{
-							Fun{"f", []Expr{Sym{"a"}}},
-							Fun{"g", []Expr{Sym{"b"}}},
-						},
-					},
-                },
-            },
-            Fun{"swap",
-                []Expr{
-					Fun{"pair",
-						[]Expr{
-							Fun{"q", []Expr{Sym{"c"}}},
-							Fun{"z", []Expr{Sym{"d"}}},
-						},
-					},
-                },
-            },
-
-        },
-    }
-	// swap(pair(f(c), g(d)))
-	value := Fun{"swap",
-		[]Expr{
-			Fun{"pair",
-				[]Expr{
-					Fun{"f", []Expr{Sym{"c"}}},
-					Fun{"g", []Expr{Sym{"d"}}},
-				},
-			},
-		},
+	lexer := Lexer{}
+	lexed_tokens := []Token{}
+	input := " swap( pair (a ,   b))  =  pair(b, a) "
+	fmt.Println(input)
+	for token := range lexer.fromStr(input).Iter() {
+		lexed_tokens = append(lexed_tokens, token)
 	}
-	fmt.Println("swap:", swap)
-	fmt.Println("expr:", expr)
-	pattern := swap.head
-	fmt.Println("pattern:", pattern)
-	fmt.Println("value:", value)
-	bind, err := pattern_match(pattern, value)
-	if err != nil {
-		panic(err)
-	} else {
-		fmt.Println("important: ", bind)
-	}
-	expr_after := swap.apply_all(expr)
-	println("\n\n")
-	fmt.Println("swap=", swap)
-	fmt.Println("expr=", expr)
-	fmt.Println("res=", expr_after)
+	fmt.Println(lexed_tokens)
 }
