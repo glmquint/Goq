@@ -80,17 +80,60 @@ type Rule struct {
 func (rule Rule)String() string{
     return rule.head.String() + " = " + rule.body.String()
 }
-func (rule *Rule)apply_all(expr Expr) (Bindings, error) {
+func (rule *Rule)apply_all(expr Expr) Expr {
     bind, err := pattern_match(rule.head, expr)
-    if err != nil{
-		return nil, err
-    }
-    for key, elem := range bind {
-        println(key, "=>", elem)
-    }
-    return bind, nil
+    if err == nil{
+		/*
+		for key, elem := range bind {
+			println(key, "=>", elem.String())
+		}
+		*/
+		expr = substitute_bindings(bind, rule.body)
+	} else {
+		println(err.Error())
+		switch expr.(type){
+		case Sym:
+			return expr
+		case Fun:
+			new_args := []Expr{}
+			for _, arg := range expr.getArgs(){
+				new_args = append(new_args, rule.apply_all(arg))
+			}
+			return Fun{expr.getName(), new_args}
+		}
+	}
+	return expr
 }
 //\															/
+
+func substitute_bindings(bindings Bindings, expr Expr) Expr {
+	switch expr.(type){
+	case Sym:
+		if value, ok := bindings[expr.getName()]; ok{
+			return value
+		} else {
+			return expr
+		}
+	case Fun:
+		new_name := ""
+		if value, ok := bindings[expr.getName()]; ok{
+			switch value.(type){
+			case Sym:
+				new_name = value.getName()
+			default:
+				panic("Expected symbol in the place of the functor name")
+			}
+		} else {
+			new_name =  expr.getName()
+		}
+		new_args := []Expr{}
+		for _, arg := range expr.getArgs(){
+			new_args = append(new_args, substitute_bindings(bindings, arg))
+		}
+		return Fun{new_name, new_args}
+	}
+	return expr
+}
 
 func pattern_match_impl(pattern Expr, value Expr, bindings Bindings) bool{
     switch pattern.(type){
@@ -154,7 +197,7 @@ func main(){
             },
     }
 
-	// foo(swap(f(a), g(b)), swap(q(c), z(d)))
+	// foo(swap(pair(f(a), g(b))), swap(pair(q(c), z(d))))
     expr := Fun{"foo",
         []Expr{
             Fun{"swap",
@@ -180,10 +223,7 @@ func main(){
 
         },
     }
-	fmt.Println("swap:", swap)
-	fmt.Println("expr:", expr)
-	pattern := swap.head
-	fmt.Println("pattern:", pattern)
+	// swap(pair(f(c), g(d)))
 	value := Fun{"swap",
 		[]Expr{
 			Fun{"pair",
@@ -194,19 +234,20 @@ func main(){
 			},
 		},
 	}
-	fmt.Println("expr:", value)
+	fmt.Println("swap:", swap)
+	fmt.Println("expr:", expr)
+	pattern := swap.head
+	fmt.Println("pattern:", pattern)
+	fmt.Println("value:", value)
 	bind, err := pattern_match(pattern, value)
 	if err != nil {
 		panic(err)
 	} else {
 		fmt.Println("important: ", bind)
 	}
-	/*
-	bind, err := swap.apply_all(expr)
-	if err != nil {
-		fmt.Println(err)
-	} else {
-		fmt.Println(bind)
-	}
-	*/
+	expr_after := swap.apply_all(expr)
+	println("\n\n")
+	fmt.Println("swap=", swap)
+	fmt.Println("expr=", expr)
+	fmt.Println("res=", expr_after)
 }
