@@ -396,18 +396,15 @@ func main(){
                 },
             },
     }
+	quit := false
 	lexer := Lexer{}
-	input := " swap( pair (f() ,   g(d)))  =  pair(b, a) "
-	fmt.Println(input)
-	/*
-	token_generator := lexer.fromStr(input)
-	for t, ok := token_generator.generateToken(); ok; t, ok = token_generator.generateToken() {
-		fmt.Print(t, " ")
-	}
-	fmt.Println("")
-	*/
 	parser := Parser{}
-	ast := parser.parse(lexer.fromStr(input))
-	println(ast.String())
-	println(swap.apply_all(ast).String())
+	for !quit {
+		fmt.Print("> ")
+		input, _ := r.ReadString('\n')
+		if len(input) > 1 {
+			fmt.Println(swap.apply_all(parser.parse(lexer.fromStr(input))))
+		}
+	}
+	fmt.Println(swap)
 }
