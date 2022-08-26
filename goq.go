@@ -132,7 +132,7 @@ func (rule *Rule)apply_all(expr Expr) Expr {
 		*/
 		expr = substitute_bindings(bind, rule.body)
 	} else {
-		println(err.Error())
+		//println(err.Error())
 		switch expr.(type){
 		case Var:
 			return expr
@@ -242,6 +242,7 @@ const (
 	CLOSEPAREN		= "CLOSEPAREN"
 	COMMA			= "COMMA"
 	EQUAL			= "EQUAL"
+	BANG			= "BANG"
 	RULE			= "RULE"
 	SHAPE			= "SHAPE"
 	APPLY			= "APPLY"
@@ -314,6 +315,9 @@ func (l *Lexer) generateToken() (Token, bool) {
 	case '=':
 		//step("generated '='")
 		return Token{EQUAL, ""}, true
+	case '!':
+		//step("generated '!'")
+		return Token{BANG, ""}, true
 	default:
 		if rune(l.current_chr) == ' '{
 			//step("skipping ' '")
@@ -509,9 +513,19 @@ func (c *Context)parse_cmd(l *Lexer) error {
 			expt := tokenkindset{}
 			expt[SYM] = true
 			expt[RULE] = true
+			expt[BANG] = true
 			name, err := expect_token_kind(l, expt)
 			if err != nil {
 				panic(err)
+			}
+			invert_rule := false
+			if name.kind == BANG {
+				invert_rule = true
+				expt[BANG] = false
+				name, err = expect_token_kind(l, expt)
+				if err != nil {
+					panic(err)
+				}
 			}
 			rule := Rule{}
 			var new_expr Expr
@@ -531,6 +545,9 @@ func (c *Context)parse_cmd(l *Lexer) error {
 				if !ok {
 					return fmt.Errorf("Rule %s does not exists", name.text)
 				}
+			}
+			if invert_rule {
+				rule = Rule{rule.body, rule.head}
 			}
 			new_expr = rule.apply_all(c.current_expr)
 			fmt.Println(new_expr)
@@ -582,26 +599,7 @@ func mainloop(context *Context) {
 }
 
 func main(){
-	swap := Rule{
-        head : Fun{Sym{"swap"},
-                []Expr{
-                    Fun{Sym{"pair"},
-                        []Expr{
-                            Sym{"a"},
-                            Sym{"b"},
-                        },
-                    },
-                },
-            },
-        body : Fun{Sym{"pair"},
-                []Expr{
-                    Sym{"b"},
-                    Sym{"a"},
-                },
-            },
-    }
 	kr := map[string]Rule{}
-	kr["swap"] = swap
 	context := Context{kr, nil, tokenkindset{}, false}
 	fmt.Println("Use 'quit' to exit")
 	for !context.quit {
