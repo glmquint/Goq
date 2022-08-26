@@ -17,6 +17,7 @@ type Expr interface{
     String() string
     getName() string
     getArgs() []Expr
+	getHead() Expr
 	isEqual(Expr) bool
 }
 
@@ -33,6 +34,9 @@ func (sym Sym)getName() string{
 func (sym Sym)getArgs() []Expr{
     return nil
 }
+func (sym Sym)getHead() Expr{
+	return nil
+}
 func (sym Sym)isEqual(other Expr) bool{
 	switch other.(type){
 	case Sym:
@@ -43,13 +47,39 @@ func (sym Sym)isEqual(other Expr) bool{
 }
 //\											/
 
+///											\
+type Var struct {
+	name string
+}
+func (v Var)String() string{
+    return v.name
+}
+func (v Var)getName() string{
+    return v.String()
+}
+func (v Var)getArgs() []Expr{
+    return nil
+}
+func (v Var)getHead() Expr{
+	return nil
+}
+func (v Var)isEqual(other Expr) bool{
+	switch other.(type){
+	case Var:
+		return v.String() == other.String()
+	default:
+		return false
+	}
+}
+//\											/
+
 ///									\
 type Fun struct {
-    name string
+    name Expr
     args []Expr
 }
 func (fun Fun)String() string {
-    ret := fun.name + "("
+    ret := fun.name.String() + "("
     for i, a := range fun.args {
         if i > 0{
             ret += ", "
@@ -60,10 +90,13 @@ func (fun Fun)String() string {
     return ret
 }
 func (fun Fun)getName() string{
-    return fun.name
+    return fun.name.getName()
 }
 func (fun Fun)getArgs() []Expr{
     return fun.args
+}
+func (fun Fun)getHead() Expr{
+	return fun.name
 }
 func (fun Fun)isEqual(other Expr) bool{
 	switch other.(type){
@@ -101,14 +134,17 @@ func (rule *Rule)apply_all(expr Expr) Expr {
 	} else {
 		println(err.Error())
 		switch expr.(type){
+		case Var:
+			return expr
 		case Sym:
 			return expr
 		case Fun:
+			new_head := rule.apply_all(expr.getHead())
 			new_args := []Expr{}
 			for _, arg := range expr.getArgs(){
 				new_args = append(new_args, rule.apply_all(arg))
 			}
-			return Fun{expr.getName(), new_args}
+			return Fun{new_head, new_args}
 		}
 	}
 	return expr
@@ -118,35 +154,44 @@ func (rule *Rule)apply_all(expr Expr) Expr {
 func substitute_bindings(bindings Bindings, expr Expr) Expr {
 	switch expr.(type){
 	case Sym:
+		return expr
+	case Var:
 		if value, ok := bindings[expr.getName()]; ok{
 			return value
 		} else {
 			return expr
 		}
 	case Fun:
-		new_name := ""
+		new_head := substitute_bindings(bindings, expr.getHead())
+		/*
 		if value, ok := bindings[expr.getName()]; ok{
 			switch value.(type){
 			case Sym:
-				new_name = value.getName()
+				new_head = value
 			default:
 				panic("Expected symbol in the place of the functor name")
 			}
 		} else {
-			new_name =  expr.getName()
+			new_head =  expr
 		}
+		*/
 		new_args := []Expr{}
 		for _, arg := range expr.getArgs(){
 			new_args = append(new_args, substitute_bindings(bindings, arg))
 		}
-		return Fun{new_name, new_args}
+		return Fun{new_head, new_args}
 	}
 	return expr
 }
 
 func pattern_match_impl(pattern Expr, value Expr, bindings Bindings) bool{
     switch pattern.(type){
-        case Sym:
+		case Sym:
+			switch value.(type){
+			case Sym:
+				return pattern.getName() == value.getName()
+			}
+        case Var:
             if bound_value, ok := bindings[pattern.getName()]; ok{
 				return bound_value.isEqual(value)
             } else {
@@ -343,7 +388,11 @@ func (p *Parser)parse(l *Lexer) Expr{
 			case 1:
 				args := []Expr{}
 				if _, ok = generate_if_kind(l, CLOSEPAREN); ok == 1 {
-					return Fun{current_token.text, args}
+					first_letter := rune(current_token.text[0])
+					if first_letter >= 'A' && first_letter <= 'Z' {
+						return Fun{Var{current_token.text}, args}
+					}
+					return Fun{Sym{current_token.text}, args}
 				}
 				args = append(args, p.parse(l))
 				for _, ok = generate_if_kind(l, COMMA); ok == 1; _, ok = generate_if_kind(l, COMMA) {
@@ -353,10 +402,18 @@ func (p *Parser)parse(l *Lexer) Expr{
 					panic("Expected close paren")
 				}
 				//panic("parse functor arguments")
-				return Fun{current_token.text, args}
+				first_letter := rune(current_token.text[0])
+				if first_letter >= 'A' && first_letter <= 'Z' {
+					return Fun{Var{current_token.text}, args}
+				}
+				return Fun{Sym{current_token.text}, args}
 			case 0:
 				//println("parse symbol", current_token.text)
 				//panic("")
+				first_letter := rune(current_token.text[0])
+				if first_letter >= 'A' && first_letter <= 'Z' {
+					return Var{current_token.text}
+				}
 				return Sym{current_token.text}
 			default:
 				panic("peeked in EOF")
@@ -526,9 +583,9 @@ func mainloop(context *Context) {
 
 func main(){
 	swap := Rule{
-        head : Fun{"swap",
+        head : Fun{Sym{"swap"},
                 []Expr{
-                    Fun{"pair",
+                    Fun{Sym{"pair"},
                         []Expr{
                             Sym{"a"},
                             Sym{"b"},
@@ -536,7 +593,7 @@ func main(){
                     },
                 },
             },
-        body : Fun{"pair",
+        body : Fun{Sym{"pair"},
                 []Expr{
                     Sym{"b"},
                     Sym{"a"},
