@@ -161,6 +161,7 @@ func pattern_match_impl(pattern Expr, value Expr, bindings Bindings) bool{
                     value_name := value.getName()
                     value_args := value.getArgs()
                     if pattern_name == value_name && len(pattern_args) == len(value_args){
+                    //if len(pattern_args) == len(value_args){
                         for i := 0; i < len(pattern_args); i++{
                             if !pattern_match_impl(pattern_args[i], value_args[i], bindings){
                                 return false
@@ -188,6 +189,7 @@ func pattern_match(pattern Expr, value Expr) (Bindings, error) {
 // === === ===
 
 type tokenkind string
+type tokenkindset map[tokenkind]bool
 
 const (
 	SYM tokenkind	= "SYM"
@@ -195,6 +197,11 @@ const (
 	CLOSEPAREN		= "CLOSEPAREN"
 	COMMA			= "COMMA"
 	EQUAL			= "EQUAL"
+	RULE			= "RULE"
+	SHAPE			= "SHAPE"
+	APPLY			= "APPLY"
+	DONE			= "DONE"
+	QUIT			= "QUIT"
 	INVALID			= "INVALID"
 )
 
@@ -230,27 +237,21 @@ func (l Lexer) peek_token(offset int) (Token, bool) {
 	//step("")
 	return t, true
 }
-/*
-func (l *Lexer) Iter () chan Token {
-	//step("iterating")
-	ch := make(chan Token)
-	go func (){
-		println("iter ended, now in func")
-		for t, ok := l.generateToken(); ok; {
-			//l.current_token = t
-			println("now waiting")
-			ch <- t
-			l.current_token, ok = l.generateToken()
-			if l.current_token.kind == OPENPAREN{
-				panic("(")
-			}
-		}
-		close(ch)
-	}()
-	l.token_generator = ch
-	return ch
+func keyword_by_name(text string) (tokenkind, bool) {
+	switch text {
+	case "rule":
+		return RULE, true
+	case "shape":
+		return SHAPE, true
+	case "apply":
+		return APPLY, true
+	case "done":
+		return DONE, true
+	case "quit":
+		return QUIT, true
+	}
+	return INVALID, false
 }
-*/
 func (l *Lexer) generateToken() (Token, bool) {
 	if !l.advance(){
 		return Token{}, false
@@ -286,7 +287,11 @@ func (l *Lexer) generateToken() (Token, bool) {
 		}
 		//fmt.Printf("generated sym : '%s", string(sym_name))
 		//step("'")
-		return Token{SYM, string(sym_name)}, true
+		if kind, ok := keyword_by_name(string(sym_name)); ok {
+			return Token{kind, string(sym_name)}, true
+		} else {
+			return Token{SYM, string(sym_name)}, true
+		}
 	}
 	panic("unreachable")
 	return Token{INVALID, ""}, false
@@ -356,6 +361,8 @@ func (p *Parser)parse(l *Lexer) Expr{
 			default:
 				panic("peeked in EOF")
 			}
+		case RULE:
+			panic("got rule")
 		default:
 			panic("report expected symbol")
 		}
@@ -363,6 +370,7 @@ func (p *Parser)parse(l *Lexer) Expr{
 		panic("report EOF error")
 	}
 }
+
 func generate_if_kind(l *Lexer, kind tokenkind) (Token, int) {
 	peeked_token, ok := l.peek_token(0)
 	if !ok{
@@ -377,12 +385,146 @@ func generate_if_kind(l *Lexer, kind tokenkind) (Token, int) {
 	return peeked_token, 0
 }
 
+
+// === === ===
+
+func expect_token_kind(l *Lexer, kinds tokenkindset) (Token, error) {
+	token, ok := l.generateToken()
+	if !ok {
+		return Token{}, fmt.Errorf("Completely exhausted lexer")
+	}
+	_, ok = kinds[token.kind]
+	if ok {
+		return token, nil
+	}
+	return Token{}, fmt.Errorf("Unexpected Token %v", token.kind)
+}
+
+type Context struct {
+	known_rules map[string]Rule
+	current_expr Expr
+	expected_tokens tokenkindset
+	quit bool
+}
+func (c *Context)parse_cmd(l *Lexer) error {
+	parser := Parser{}
+	c.expected_tokens = tokenkindset{}
+	c.expected_tokens[RULE] = true
+	c.expected_tokens[SHAPE] = true
+	c.expected_tokens[APPLY] = true
+	c.expected_tokens[DONE] = true
+	c.expected_tokens[QUIT] = true
+	keyword, err := expect_token_kind(l, c.expected_tokens)
+	if err != nil {
+		panic(err)
+	}
+	switch keyword.kind {
+	case RULE:
+		expt := tokenkindset{}
+		expt[SYM] = true
+		name, err := expect_token_kind(l, expt)
+		if err != nil {
+			panic(err)
+		}
+		_, ok := c.known_rules[name.text]
+		if ok {
+			return fmt.Errorf("Rule %s already exists", name.text)
+		}
+		head := parser.parse(l)
+		expt = tokenkindset{}
+		expt[EQUAL] = true
+		_, err = expect_token_kind(l, expt)
+		if err != nil {
+			panic(err)
+		}
+		body:= parser.parse(l)
+		rule := Rule{head, body}
+		c.known_rules[name.text] = rule
+	case SHAPE:
+		if c.current_expr != nil {
+			return fmt.Errorf("Already Shaping")
+		}
+		expr := parser.parse(l)
+		fmt.Printf("Shaping %s\n", expr)
+		c.current_expr = expr
+	case APPLY:
+		if c.current_expr != nil {
+			expt := tokenkindset{}
+			expt[SYM] = true
+			expt[RULE] = true
+			name, err := expect_token_kind(l, expt)
+			if err != nil {
+				panic(err)
+			}
+			rule := Rule{}
+			var new_expr Expr
+			if name.kind == RULE {
+				head := parser.parse(l)
+				expt = tokenkindset{}
+				expt[EQUAL] = true
+				_, err = expect_token_kind(l, expt)
+				if err != nil {
+					panic(err)
+				}
+				body := parser.parse(l)
+				rule = Rule{head, body}
+			} else {
+				var ok bool
+				rule, ok = c.known_rules[name.text]
+				if !ok {
+					return fmt.Errorf("Rule %s does not exists", name.text)
+				}
+			}
+			new_expr = rule.apply_all(c.current_expr)
+			fmt.Println(new_expr)
+			c.current_expr = new_expr
+		} else {
+			return fmt.Errorf("No Shaping in Place")
+		}
+	case DONE:
+		if c.current_expr == nil {
+			return fmt.Errorf("No Shaping in Place")
+		}
+		fmt.Printf("Finished shaping expression %s\n", c.current_expr)
+		c.current_expr = nil
+	case QUIT:
+		c.quit = true
+	default:
+		panic("unreachable")
+	}
+	return nil
+}
+
 func handlepanic() {
 	if a := recover(); a != nil {
 		fmt.Println("RECOVER", a)
 	} 
 }
-func mainloop() {
+func mainloop(context *Context) {
+	lexer := Lexer{}
+	defer handlepanic()
+	if context.current_expr != nil {
+		fmt.Print("> ")
+	} else {
+		fmt.Print("known rules: \n")
+		for rulename, rule := range context.known_rules {
+			fmt.Printf("\t'%s': %v\n", rulename, rule)
+		}
+		//fmt.Print("current expr: ")
+		//fmt.Println(context.current_expr)
+		fmt.Print("goq> ")
+	}
+	input, _ := r.ReadString('\n')
+	if len(input) > 1 {
+		//res := swap.apply_all(parser.parse(lexer.fromStr(input)))
+		res := context.parse_cmd(lexer.fromStr(input))
+		if res != nil {
+			fmt.Println("=> ", res)
+		}
+	}
+}
+
+func main(){
 	swap := Rule{
         head : Fun{"swap",
                 []Expr{
@@ -401,20 +543,12 @@ func mainloop() {
                 },
             },
     }
-	lexer := Lexer{}
-	parser := Parser{}
-	defer handlepanic()
-	fmt.Print("> ")
-	input, _ := r.ReadString('\n')
-	if len(input) > 1 {
-		res := swap.apply_all(parser.parse(lexer.fromStr(input)))
-		fmt.Println(res)
+	kr := map[string]Rule{}
+	kr["swap"] = swap
+	context := Context{kr, nil, tokenkindset{}, false}
+	fmt.Println("Use 'quit' to exit")
+	for !context.quit {
+		mainloop(&context)
 	}
-}
-
-func main(){
-	quit := false
-	for !quit {
-		mainloop()
-	}
+	fmt.Println("Goodbye!")
 }
