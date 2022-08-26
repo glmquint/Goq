@@ -377,7 +377,12 @@ func generate_if_kind(l *Lexer, kind tokenkind) (Token, int) {
 	return peeked_token, 0
 }
 
-func main(){
+func handlepanic() {
+	if a := recover(); a != nil {
+		fmt.Println("RECOVER", a)
+	} 
+}
+func mainloop() {
 	swap := Rule{
         head : Fun{"swap",
                 []Expr{
@@ -396,15 +401,20 @@ func main(){
                 },
             },
     }
-	quit := false
 	lexer := Lexer{}
 	parser := Parser{}
-	for !quit {
-		fmt.Print("> ")
-		input, _ := r.ReadString('\n')
-		if len(input) > 1 {
-			fmt.Println(swap.apply_all(parser.parse(lexer.fromStr(input))))
-		}
+	defer handlepanic()
+	fmt.Print("> ")
+	input, _ := r.ReadString('\n')
+	if len(input) > 1 {
+		res := swap.apply_all(parser.parse(lexer.fromStr(input)))
+		fmt.Println(res)
 	}
-	fmt.Println(swap)
+}
+
+func main(){
+	quit := false
+	for !quit {
+		mainloop()
+	}
 }
