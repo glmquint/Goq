@@ -3,7 +3,15 @@ package main
 import (
     "fmt"
 	"unicode"
+	"bufio"
+	"os"
 )
+
+var r = bufio.NewReader(os.Stdin)
+func step(msg string) {
+	fmt.Println(msg)
+	r.ReadLine()
+}
 
 type Expr interface{
     String() string
@@ -205,35 +213,64 @@ type Lexer struct {
 }
 func (l *Lexer) fromStr(s string) *Lexer{
 	l.text = []rune(s)
-	//fmt.Printf("now l.text = %s\n", string(l.text))
 	l.cursor = 0
 	return l
 }
-func (l *Lexer) Iter () <-chan Token {
+func (l Lexer) peek_token(offset int) (Token, bool) {
+	//step("peeking")
+	t := Token{}
+	ok := true
+	for i := 0; i <= offset; i++ {
+		t, ok = l.generateToken()
+		if !ok {
+			return Token{}, false
+		}
+	}
+	//fmt.Printf("returning %s %s", t.kind, t.text)
+	//step("")
+	return t, true
+}
+/*
+func (l *Lexer) Iter () chan Token {
+	//step("iterating")
 	ch := make(chan Token)
 	go func (){
-		for t, ok := l.generateToken(); ok; t, ok = l.generateToken() {
+		println("iter ended, now in func")
+		for t, ok := l.generateToken(); ok; {
+			//l.current_token = t
+			println("now waiting")
 			ch <- t
+			l.current_token, ok = l.generateToken()
+			if l.current_token.kind == OPENPAREN{
+				panic("(")
+			}
 		}
 		close(ch)
 	}()
+	l.token_generator = ch
 	return ch
 }
+*/
 func (l *Lexer) generateToken() (Token, bool) {
 	if !l.advance(){
 		return Token{}, false
 	}
 	switch l.current_chr{
 	case '(':
+		//step("generated '('")
 		return Token{OPENPAREN, ""}, true
 	case ')':
+		//step("generated ')'")
 		return Token{CLOSEPAREN, ""}, true
 	case ',':
+		//step("generated ','")
 		return Token{COMMA, ""}, true
 	case '=':
+		//step("generated '='")
 		return Token{EQUAL, ""}, true
 	default:
 		if rune(l.current_chr) == ' '{
+			//step("skipping ' '")
 			return l.generateToken()
 		}
 		sym_name := []rune{l.current_chr}
@@ -247,7 +284,8 @@ func (l *Lexer) generateToken() (Token, bool) {
 			//fmt.Printf("%c is valid. Now sym_name = %s\n", next_chr, string(sym_name))
 			l.advance()
 		}
-		//fmt.Printf("saving sym_name = %s\n", string(sym_name))
+		//fmt.Printf("generated sym : '%s", string(sym_name))
+		//step("'")
 		return Token{SYM, string(sym_name)}, true
 	}
 	panic("unreachable")
@@ -273,13 +311,103 @@ func (l *Lexer) peek(offset int) (rune, bool) {
 	return l.text[sum], true
 }
 
-func main(){
-	lexer := Lexer{}
-	lexed_tokens := []Token{}
-	input := " swap( pair (a ,   b))  =  pair(b, a) "
-	fmt.Println(input)
-	for token := range lexer.fromStr(input).Iter() {
-		lexed_tokens = append(lexed_tokens, token)
+// === === ===
+
+type Parser struct {
+	/*
+	token_list []Token
+	current_token Token
+	cursor int
+	*/
+}
+func (p *Parser)parse(l *Lexer) Expr{
+	current_token, _ := l.generateToken()
+	//println("current token", current_token.kind, current_token.text)
+	/*
+	pt, ok := l.peek_token(0)
+	if !ok {
+		panic(ok)
 	}
-	fmt.Println(lexed_tokens)
+	println("sanity check: next is", pt.kind)
+	*/
+	if (current_token != Token{}) {
+		switch current_token.kind{
+		case SYM:
+			_, ok := generate_if_kind(l, OPENPAREN)
+			switch ok{
+			case 1:
+				args := []Expr{}
+				if _, ok = generate_if_kind(l, CLOSEPAREN); ok == 1 {
+					return Fun{current_token.text, args}
+				}
+				args = append(args, p.parse(l))
+				for _, ok = generate_if_kind(l, COMMA); ok == 1; _, ok = generate_if_kind(l, COMMA) {
+					args = append(args, p.parse(l))
+				}
+				if _, ok = generate_if_kind(l, CLOSEPAREN); ok != 1 {
+					panic("Expected close paren")
+				}
+				//panic("parse functor arguments")
+				return Fun{current_token.text, args}
+			case 0:
+				//println("parse symbol", current_token.text)
+				//panic("")
+				return Sym{current_token.text}
+			default:
+				panic("peeked in EOF")
+			}
+		default:
+			panic("report expected symbol")
+		}
+	} else {
+		panic("report EOF error")
+	}
+}
+func generate_if_kind(l *Lexer, kind tokenkind) (Token, int) {
+	peeked_token, ok := l.peek_token(0)
+	if !ok{
+		return Token{}, -1
+	}
+	//println("peeked token", peeked_token.text)
+	//step("")
+	if peeked_token.kind == kind {
+		peeked_token, _ = l.generateToken() // doesn't change pt but advances lexer
+		return peeked_token, 1
+	}
+	return peeked_token, 0
+}
+
+func main(){
+	swap := Rule{
+        head : Fun{"swap",
+                []Expr{
+                    Fun{"pair",
+                        []Expr{
+                            Sym{"a"},
+                            Sym{"b"},
+                        },
+                    },
+                },
+            },
+        body : Fun{"pair",
+                []Expr{
+                    Sym{"b"},
+                    Sym{"a"},
+                },
+            },
+    }
+	lexer := Lexer{}
+	input := " swap( pair (f() ,   g(d)))  =  pair(b, a) "
+	fmt.Println(input)
+	/*
+	token_generator := lexer.fromStr(input)
+	for t, ok := token_generator.generateToken(); ok; t, ok = token_generator.generateToken() {
+		fmt.Print(t, " ")
+	}
+	fmt.Println("")
+	*/
+	parser := Parser{}
+	ast := parser.parse(lexer.fromStr(input))
+	println(ast.String())
+	println(swap.apply_all(ast).String())
 }
