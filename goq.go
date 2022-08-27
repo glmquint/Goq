@@ -194,7 +194,8 @@ func pattern_match_impl(pattern Expr, value Expr, bindings Bindings) bool{
 			}
         case Var:
             if bound_value, ok := bindings[pattern.getName()]; ok{
-				return bound_value.isEqual(value)
+				//return bound_value.isEqual(value)
+				return bound_value.getName() == value.getName()
             } else {
                 bindings[pattern.getName()] = value
                 return true
