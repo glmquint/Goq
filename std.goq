@@ -1,0 +1,7 @@
+load "peano.goq"
+
+rule mul mul(A, s(X)) = sum(mul(A, X), A)
+rule mulid mul(A, 0) = 0
+
+rule pow pow(A, s(X)) = mul(pow(A, X), A)
+rule powid pow(A, 0) = 1

@@ -1,0 +1,2 @@
+rule sum sum(A, s(X))=s(sum(A, X))
+rule sumid sum(A, 0)=A
