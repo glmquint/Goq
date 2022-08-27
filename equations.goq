@@ -10,6 +10,16 @@ rule divid  A = div(A, 1)
 rule sumcomm sum(A, B) = sum(B, A)
 rule mulcomm mul(A, B) = mul(B, A)
 
+rule muladddist mul(sum(A, B), C) = sum(mul(A, C), mul(B, C))
+rule mulsubdist mul(sub(A, B), C) = sub(mul(A, C), mul(B, C))
+rule divadddist div(sum(A, B), C) = sum(div(A, C), div(B, C))
+rule divsubdist div(sub(A, B), C) = sub(div(A, C), div(B, C))
+
+rule muleqdist mul(eq(A, B), C) = eq(mul(A, C), mul(B, C))
+rule diveqdist div(eq(A, B), C) = eq(div(A, C), div(B, C))
+rule sumeqdist sum(eq(A, B), C) = eq(sum(A, C), sum(B, C))
+rule subeqdist sub(eq(A, B), C) = eq(sub(A, C), sub(B, C))
+
 rule subcomm sub(A, B) = sub(0, sub(B, A))
 rule divcomm div(A, B) = div(1, div(B, A))
 rule subrec sub(A, sub(B, C)) = sub(sum(A, C), B)

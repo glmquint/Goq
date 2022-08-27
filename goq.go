@@ -17,6 +17,7 @@ func step(msg string) {
 type Expr interface{
     String() string
     getName() string
+	getLatex() string
     getArgs() []Expr
 	getHead() Expr
 	isEqual(Expr) bool
@@ -31,6 +32,9 @@ func (sym Sym)String() string{
 }
 func (sym Sym)getName() string{
     return sym.String()
+}
+func (sym Sym)getLatex() string{
+	return sym.String()
 }
 func (sym Sym)getArgs() []Expr{
     return nil
@@ -57,6 +61,9 @@ func (v Var)String() string{
 }
 func (v Var)getName() string{
     return v.String()
+}
+func (v Var)getLatex() string{
+	return v.getLatex()
 }
 func (v Var)getArgs() []Expr{
     return nil
@@ -92,6 +99,32 @@ func (fun Fun)String() string {
 }
 func (fun Fun)getName() string{
     return fun.name.getName()
+}
+func (fun Fun)getLatex()string{
+	latex := fun.String()
+	args := fun.getArgs()
+	if len(args) < 2 {
+		return latex
+	}
+	switch fun.getName(){
+	case "eq":
+		latex = args[0].getLatex() + " = " + args[1].getLatex()
+	case "sum":
+		latex = "\\left(" + args[0].getLatex() + " + " + args[1].getLatex() + "\\right)"
+	case "sub":
+		latex = "\\left(" + args[0].getLatex() + " - " + args[1].getLatex() + "\\right)"
+	case "mul":
+		latex = "\\left(" + args[0].getLatex() + " \\cdot " + args[1].getLatex() + "\\right)"
+	case "div":
+		latex = "\\frac{" + args[0].getLatex() + "}{" + args[1].getLatex() + "}"
+	case "pow":
+		latex = "\\left(" + args[0].getLatex() + "\\right)^{" + args[1].getLatex() + "}"
+	case "lim":
+		latex = "\\lim\\limits_{" + args[0].getLatex() + "}\\left(" + args[1].getLatex() + "\\right)"
+	case "to":
+		latex = args[0].getLatex() + "\\to " + args[1].getLatex()
+	}
+	return latex
 }
 func (fun Fun)getArgs() []Expr{
     return fun.args
@@ -251,6 +284,7 @@ const (
 	DONE			= "DONE"
 	LOAD			= "LOAD"
 	QUIT			= "QUIT"
+	LATEX			= "LATEX"
 	STRING			= "STRING"
 	UNCLOSEDSTRING	= "UNCLOSEDSTRING"
 	INVALID			= "INVALID"
@@ -304,6 +338,8 @@ func keyword_by_name(text string) (tokenkind, bool) {
 		return QUIT, true
 	case "load":
 		return LOAD, true
+	case "latex":
+		return LATEX, true
 	}
 	return INVALID, false
 }
@@ -495,6 +531,7 @@ type Context struct {
 	known_rules map[string]Rule
 	current_expr Expr
 	expected_tokens tokenkindset
+	useLatex bool
 	quit bool
 }
 func (c *Context)parse_cmd(l *Lexer) error {
@@ -507,6 +544,7 @@ func (c *Context)parse_cmd(l *Lexer) error {
 	c.expected_tokens[DONE] = true
 	c.expected_tokens[EOF] = true
 	c.expected_tokens[QUIT] = true
+	c.expected_tokens[LATEX] = true
 	keyword, err := expect_token_kind(l, c.expected_tokens)
 	if err != nil {
 		panic(err)
@@ -546,7 +584,11 @@ func (c *Context)parse_cmd(l *Lexer) error {
 			return fmt.Errorf("Already Shaping")
 		}
 		expr := parser.parse(l)
-		fmt.Printf("Shaping %s\n", expr)
+		if c.useLatex {
+			fmt.Printf("Shaping %s\n", expr.getLatex())
+		} else {
+			fmt.Printf("Shaping %s\n", expr)
+		}
 		c.current_expr = expr
 	case APPLY:
 		if c.current_expr != nil {
@@ -590,7 +632,11 @@ func (c *Context)parse_cmd(l *Lexer) error {
 				rule = Rule{rule.body, rule.head}
 			}
 			new_expr = rule.apply_all(c.current_expr)
-			fmt.Println(new_expr)
+			if c.useLatex {
+				fmt.Println(new_expr.getLatex())
+			} else {
+				fmt.Println(new_expr)
+			}
 			c.current_expr = new_expr
 		} else {
 			return fmt.Errorf("No Shaping in Place")
@@ -599,10 +645,21 @@ func (c *Context)parse_cmd(l *Lexer) error {
 		if c.current_expr == nil {
 			return fmt.Errorf("No Shaping in Place")
 		}
-		fmt.Printf("Finished shaping expression %s\n", c.current_expr)
+		if c.useLatex {
+			fmt.Printf("Finished shaping expression %s\n", c.current_expr.getLatex())
+		} else {
+			fmt.Printf("Finished shaping expression %s\n", c.current_expr)
+		}
 		c.current_expr = nil
 	case QUIT:
 		c.quit = true
+	case LATEX:
+		c.useLatex = !c.useLatex
+		if c.useLatex {
+			fmt.Println("switched to latex output")
+		} else {
+			fmt.Println("switched to normal output")
+		}
 	case EOF:
 		return nil
 	default:
@@ -656,7 +713,7 @@ func mainloop(context *Context) {
 
 func main(){
 	kr := map[string]Rule{}
-	context := Context{kr, nil, tokenkindset{}, false}
+	context := Context{kr, nil, tokenkindset{}, true, false}
 	fmt.Println("Use 'quit' to exit")
 	for !context.quit {
 		mainloop(&context)

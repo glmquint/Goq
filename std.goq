@@ -1,4 +1,7 @@
 load "peano.goq"
+load "equations.goq"
+
+rule nil X=X
 
 rule mul mul(A, s(X)) = sum(mul(A, X), A)
 rule mulid mul(A, 0) = 0
