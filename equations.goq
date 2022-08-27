@@ -1,0 +1,16 @@
+rule eqcomm eq(A, B) = eq(B, A)
+rule subeq  eq(A, sum(B, C)) = eq(sub(A, B), C)
+rule diveq  eq(A, mul(B, C)) = eq(div(A, B), C)
+
+rule sumid  A = sum(A, 0)
+rule subid  A = sub(A, 0)
+rule mulid  A = mul(A, 1)
+rule divid  A = div(A, 1)
+
+rule sumcomm sum(A, B) = sum(B, A)
+rule mulcomm mul(A, B) = mul(B, A)
+
+rule subcomm sub(A, B) = sub(0, sub(B, A))
+rule divcomm div(A, B) = div(1, div(B, A))
+rule subrec sub(A, sub(B, C)) = sub(sum(A, C), B)
+rule divrec div(A, div(B, C)) = div(mul(A, C), B)
