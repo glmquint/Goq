@@ -5,6 +5,7 @@ import (
 	"unicode"
 	"bufio"
 	"os"
+	"strings"
 )
 
 var r = bufio.NewReader(os.Stdin)
@@ -247,8 +248,12 @@ const (
 	SHAPE			= "SHAPE"
 	APPLY			= "APPLY"
 	DONE			= "DONE"
+	LOAD			= "LOAD"
 	QUIT			= "QUIT"
+	STRING			= "STRING"
+	UNCLOSEDSTRING	= "UNCLOSEDSTRING"
 	INVALID			= "INVALID"
+	EOF				= "EOF"
 )
 
 type Token struct {
@@ -265,6 +270,7 @@ type Lexer struct {
 	current_chr rune
 }
 func (l *Lexer) fromStr(s string) *Lexer{
+	//fmt.Printf("Lexing => '%s'", s[:len(s)-1])
 	l.text = []rune(s)
 	l.cursor = 0
 	return l
@@ -295,6 +301,8 @@ func keyword_by_name(text string) (tokenkind, bool) {
 		return DONE, true
 	case "quit":
 		return QUIT, true
+	case "load":
+		return LOAD, true
 	}
 	return INVALID, false
 }
@@ -318,6 +326,24 @@ func (l *Lexer) generateToken() (Token, bool) {
 	case '!':
 		//step("generated '!'")
 		return Token{BANG, ""}, true
+	case '\n':
+		return Token{EOF, ""}, true
+	case '"':
+		text := ""
+		for next_chr, ok := l.peek(0); ok; next_chr, ok = l.peek(0) {
+			if next_chr == '"' {
+				break
+			}
+			text += string(next_chr)
+			l.advance()
+		}
+		if next_chr, ok := l.peek(0); ok {
+			if next_chr == '"' {
+				l.advance()
+				return Token{STRING, text}, true
+			}
+		}
+		return Token{UNCLOSEDSTRING, ""}, true
 	default:
 		if rune(l.current_chr) == ' '{
 			//step("skipping ' '")
@@ -339,7 +365,7 @@ func (l *Lexer) generateToken() (Token, bool) {
 		if kind, ok := keyword_by_name(string(sym_name)); ok {
 			return Token{kind, string(sym_name)}, true
 		} else {
-			return Token{SYM, string(sym_name)}, true
+			return Token{SYM, string(sym_name)}, len(sym_name) > 0
 		}
 	}
 	panic("unreachable")
@@ -419,8 +445,10 @@ func (p *Parser)parse(l *Lexer) Expr{
 					return Var{current_token.text}
 				}
 				return Sym{current_token.text}
+				/*
 			default:
 				panic("peeked in EOF")
+				*/
 			}
 		case RULE:
 			panic("got rule")
@@ -430,6 +458,7 @@ func (p *Parser)parse(l *Lexer) Expr{
 	} else {
 		panic("report EOF error")
 	}
+	return Sym{""}
 }
 
 func generate_if_kind(l *Lexer, kind tokenkind) (Token, int) {
@@ -452,13 +481,13 @@ func generate_if_kind(l *Lexer, kind tokenkind) (Token, int) {
 func expect_token_kind(l *Lexer, kinds tokenkindset) (Token, error) {
 	token, ok := l.generateToken()
 	if !ok {
-		return Token{}, fmt.Errorf("Completely exhausted lexer")
+		return Token{EOF, ""}, nil//fmt.Errorf("Completely exhausted lexer")
 	}
 	_, ok = kinds[token.kind]
 	if ok {
 		return token, nil
 	}
-	return Token{}, fmt.Errorf("Unexpected Token %v", token.kind)
+	return Token{}, fmt.Errorf("Unexpected Token %v", token)
 }
 
 type Context struct {
@@ -470,16 +499,26 @@ type Context struct {
 func (c *Context)parse_cmd(l *Lexer) error {
 	parser := Parser{}
 	c.expected_tokens = tokenkindset{}
+	c.expected_tokens[LOAD] = true
 	c.expected_tokens[RULE] = true
 	c.expected_tokens[SHAPE] = true
 	c.expected_tokens[APPLY] = true
 	c.expected_tokens[DONE] = true
+	c.expected_tokens[EOF] = true
 	c.expected_tokens[QUIT] = true
 	keyword, err := expect_token_kind(l, c.expected_tokens)
 	if err != nil {
 		panic(err)
 	}
 	switch keyword.kind {
+	case LOAD:
+		expt := tokenkindset{}
+		expt[STRING] = true
+		filetoken, err := expect_token_kind(l, expt)
+		if err != nil {
+			panic(err)
+		}
+		c.process_file(filetoken.text)
 	case RULE:
 		expt := tokenkindset{}
 		expt[SYM] = true
@@ -563,10 +602,28 @@ func (c *Context)parse_cmd(l *Lexer) error {
 		c.current_expr = nil
 	case QUIT:
 		c.quit = true
+	case EOF:
+		return nil
 	default:
 		panic("unreachable")
 	}
 	return nil
+}
+func (c *Context)process_file(file_path string){
+	if !strings.HasSuffix(file_path, ".goq") {
+		panic(file_path + " is not a valid goq file (must end in '.goq')")
+	}
+	fmt.Println("processing " + file_path)
+	file, err := os.Open(file_path)
+	defer file.Close()
+	if err != nil {
+		panic(err)
+	}
+	reader := bufio.NewReader(file)
+	lexer := Lexer{}
+	for line, err := reader.ReadString('\n'); err == nil; line, err = reader.ReadString('\n') {
+		c.parse_cmd(lexer.fromStr(line))
+	}
 }
 
 func handlepanic() {
@@ -589,12 +646,10 @@ func mainloop(context *Context) {
 		fmt.Print("goq> ")
 	}
 	input, _ := r.ReadString('\n')
-	if len(input) > 1 {
-		//res := swap.apply_all(parser.parse(lexer.fromStr(input)))
-		res := context.parse_cmd(lexer.fromStr(input))
-		if res != nil {
-			fmt.Println("=> ", res)
-		}
+	//res := swap.apply_all(parser.parse(lexer.fromStr(input)))
+	res := context.parse_cmd(lexer.fromStr(input))
+	if res != nil {
+		fmt.Println("=> ", res)
 	}
 }
 
